@@ -1,0 +1,113 @@
+--Nursena Taskopru 
+use ARAC_SATIS2
+
+select * from TblAraclar
+
+--PROCEDURE1 up_satilikAraclariGetir
+CREATE PROCEDURE up_satilikAraclariGetir
+AS
+BEGIN
+    SELECT *
+    FROM TblAraclar
+    WHERE satilikMi = 1;
+END;
+
+--fonksiyonu cagirma
+EXEC up_satilikAraclariGetir;
+
+--diyagram göster
+USE ARAC_SATIS2;
+ALTER AUTHORIZATION ON DATABASE::ARAC_SATIS2 TO [sa];
+
+
+
+
+--PROCEDURE2 up_aracSatisTeklif
+
+CREATE PROCEDURE up_aracSatisTeklif
+    @musteri_id INT,          -- Teklifi yapan müþteri ID
+    @arac_id INT,             -- Satýn alýnmak istenen araç ID
+    @teklif_fiyati DECIMAL(18, 2) -- Teklif edilen fiyat
+AS
+BEGIN
+    DECLARE @arac_fiyati DECIMAL(18, 2);  
+
+    SELECT @arac_fiyati = fiyat
+    FROM TblAraclar
+    WHERE arac_id = @arac_id;
+
+    IF @teklif_fiyati >= (@arac_fiyati * 0.95)
+    BEGIN
+        INSERT INTO TblSatilanAraclar (arac_musteri_id, arac_id, satis_fiyat)
+        VALUES (@musteri_id, @arac_id, @teklif_fiyati);
+
+        UPDATE TblAraclar
+        SET satilikMi = 0
+        WHERE arac_id = @arac_id;
+
+        PRINT 'Satýþ baþarýlý ';
+    END
+    ELSE
+    BEGIN
+        INSERT INTO TblAraclarAudit (AuditData)
+        VALUES (
+            CONCAT(
+                @arac_id, ' idli araca ', FORMAT(GETDATE(), 'yyyy-MM-dd HH:mm:ss'), 
+                ' tarihinde gelen ', @teklif_fiyati, ' TL deðerindeki teklif reddedildi.'
+            )
+        );
+        PRINT 'Teklif reddedildi.';
+    END
+END;
+
+--silme kodu
+DROP PROCEDURE up_aracSatisTeklif;
+
+
+
+--deneme
+select * from TblAraclarAudit
+select * from TblSatilanAraclar
+--satýlýk araclar fonks
+EXEC up_satilikAraclariGetir;
+
+EXEC up_aracSatisTeklif @musteri_id = 1, @arac_id = 1, @teklif_fiyati = 90000;
+EXEC up_aracSatisTeklif @musteri_id = 1, @arac_id = 1, @teklif_fiyati = 700000;
+EXEC up_aracSatisTeklif @musteri_id = 2, @arac_id = 1, @teklif_fiyati = 730000;
+EXEC up_aracSatisTeklif @musteri_id = 2, @arac_id = 2, @teklif_fiyati = 90000;
+
+
+--TRIGGER trg_tblSatilanAraclar_forInsert
+
+
+
+CREATE TRIGGER trg_tblSatilanAraclar_forInsert
+ON TblSatilanAraclar
+AFTER INSERT
+AS
+BEGIN
+    -- TblAraclarAudit tablosuna satýþ bilgilerini ekle
+    INSERT INTO TblAraclarAudit (AuditData)
+    SELECT 
+        CONCAT(
+            inserted.arac_id, ' idli araç ', FORMAT(GETDATE(), 'yyyy-MM-dd HH:mm:ss'), 
+            ' tarihinde ', inserted.arac_musteri_id, ' idli müþteriye ', 
+            inserted.satis_fiyat, ' TL karþýlýðýnda satýldý.'
+        )
+    FROM inserted;
+END;
+--Trigger silme 
+DROP TRIGGER trg_tblSatilanAraclar_forInsert;
+
+--deneme
+INSERT INTO TblSatilanAraclar (arac_musteri_id, arac_id, satis_fiyat)
+VALUES (1, 1, 100000);
+SELECT * FROM TblAraclarAudit;
+
+EXEC up_aracSatisTeklif @musteri_id = 2, @arac_id = 1, @teklif_fiyati = 730000; -- satildi
+EXEC up_aracSatisTeklif @musteri_id = 3, @arac_id = 3, @teklif_fiyati = 1000; --red
+
+select * from TblAraclarAudit
+select * from TblSatilanAraclar
+--satýlýk araclar fonks
+EXEC up_satilikAraclariGetir;
